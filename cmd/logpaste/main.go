@@ -13,6 +13,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "vibenest-pilot" {
+		if err := runPilot(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	log.Print("Starting logpaste server")
 
 	title := flag.String("title", "LogPaste", "title for the site")

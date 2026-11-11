@@ -14,7 +14,11 @@ func (s defaultServer) serveIndexPage() http.HandlerFunc {
 		indexTemplate := template.Must(template.New(indexFilename).
 			ParseFiles(path.Join(viewsRootDir, indexFilename)))
 		if err := indexTemplate.ExecuteTemplate(w, indexFilename, s.siteProps); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			message := "Failed to render the page"
+			if s.publicOrigin == "" {
+				message = err.Error()
+			}
+			http.Error(w, message, http.StatusInternalServerError)
 		}
 	}
 }

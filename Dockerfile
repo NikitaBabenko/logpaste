@@ -21,7 +21,7 @@ COPY --from=backend_builder /app/bin/logpaste ./
 
 FROM litestream/litestream:0.3.9 AS litestream
 
-FROM alpine:3.15
+FROM alpine:3.15 AS upstream
 
 RUN apk add --no-cache bash
 
@@ -37,3 +37,8 @@ WORKDIR /app
 ENV DB_SYNC_INTERVAL="10s"
 
 ENTRYPOINT ["/app/docker-entrypoint"]
+
+FROM upstream AS vibenest
+EXPOSE 3001
+HEALTHCHECK --interval=30s --timeout=3s CMD ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/healthz"]
+ENTRYPOINT ["/app/logpaste", "vibenest-pilot"]

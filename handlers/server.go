@@ -13,9 +13,19 @@ type Server interface {
 }
 
 func New(sp SiteProperties, perMinuteLimit int, maxCharLimit int64) Server {
+	return newServer(sp, perMinuteLimit, maxCharLimit, sqlite.New("data/store.db"), "")
+}
+
+func NewPilot(sp SiteProperties, maxBytes int64, entries store.Store, publicOrigin string) Server {
+	sp.PublicOrigin = publicOrigin
+	return newServer(sp, limit.RateLimitingDisabled, maxBytes, entries, publicOrigin)
+}
+
+func newServer(sp SiteProperties, perMinuteLimit int, maxCharLimit int64, entries store.Store, publicOrigin string) Server {
 	s := defaultServer{
 		router:        http.NewServeMux(),
-		store:         sqlite.New("data/store.db"),
+		store:         entries,
+		publicOrigin:  publicOrigin,
 		siteProps:     sp,
 		ipRateLimiter: limit.New(perMinuteLimit),
 		maxCharLimit:  maxCharLimit,
@@ -25,10 +35,11 @@ func New(sp SiteProperties, perMinuteLimit int, maxCharLimit int64) Server {
 }
 
 type SiteProperties struct {
-	Title      string
-	Subtitle   string
-	FooterHTML string
-	ShowDocs   bool
+	Title        string
+	Subtitle     string
+	FooterHTML   string
+	ShowDocs     bool
+	PublicOrigin string
 }
 
 type defaultServer struct {
@@ -37,6 +48,7 @@ type defaultServer struct {
 	siteProps     SiteProperties
 	ipRateLimiter limit.IPRateLimiter
 	maxCharLimit  int64
+	publicOrigin  string
 }
 
 // Router returns the underlying router interface for the server.

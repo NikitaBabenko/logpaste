@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"os"
@@ -12,8 +13,14 @@ import (
 	"github.com/mtlynch/logpaste/store"
 )
 
+type queries interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 type db struct {
-	ctx *sql.DB
+	ctx       queries
+	retention time.Duration
 }
 
 func New(path string) store.Store {
@@ -42,7 +49,13 @@ PRAGMA wal_autocheckpoint = 0;
 
 func (d db) GetEntry(id string) (string, error) {
 	var contents string
-	if err := d.ctx.QueryRow("SELECT contents FROM entries WHERE id=?", id).Scan(&contents); err != nil {
+	query := "SELECT contents FROM entries WHERE id=?"
+	args := []any{id}
+	if d.retention > 0 {
+		query += " AND creation_time>?"
+		args = append(args, d.expiryCutoff())
+	}
+	if err := d.ctx.QueryRowContext(context.Background(), query, args...).Scan(&contents); err != nil {
 		if err == sql.ErrNoRows {
 			return "", store.EntryNotFoundError{ID: id}
 		}
@@ -52,12 +65,16 @@ func (d db) GetEntry(id string) (string, error) {
 }
 
 func (d db) InsertEntry(id string, contents string) error {
-	_, err := d.ctx.Exec(`
+	now := time.Now()
+	if d.retention > 0 {
+		now = now.UTC()
+	}
+	_, err := d.ctx.ExecContext(context.Background(), `
 	INSERT INTO entries(
 		id,
 		creation_time,
 		contents)
-	values(?,?,?)`, id, time.Now().Format(time.RFC3339), contents)
+	values(?,?,?)`, id, now.Format(time.RFC3339), contents)
 	return err
 }
 

@@ -3,7 +3,7 @@
 // Make ESLint happy.
 /* global Prism, logpaste */
 
-const baseUrl = document.location.origin;
+const baseUrl = document.body.dataset.publicOrigin || document.location.origin;
 
 const curlCmd = document.getElementById("curl-cmd");
 if (curlCmd) {
@@ -50,14 +50,14 @@ function displayResult(resultId) {
 
   const resultDiv = document.getElementById("result");
 
-  const resultUrl = `${document.location}${resultId}`;
+  const resultUrl = new URL(`/${resultId}`, baseUrl).href;
 
   const header = document.createElement("h3");
   header.innerText = "Shareable link";
   resultDiv.appendChild(header);
 
   const anchor = document.createElement("a");
-  anchor.href = `/${resultId}`;
+  anchor.href = resultUrl;
   anchor.innerText = resultUrl;
   resultDiv.appendChild(anchor);
 

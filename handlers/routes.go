@@ -14,7 +14,9 @@ func (s *defaultServer) routes() {
 	s.router.HandleFunc("GET /favicon.ico", notFound())
 	s.router.Handle("GET /static/", GetStaticFilesHandler())
 	s.router.HandleFunc("GET /{id}", s.pasteGet())
-	s.router.HandleFunc("OPTIONS /{$}", s.pasteOptions())
+	if s.publicOrigin == "" {
+		s.router.HandleFunc("OPTIONS /{$}", s.pasteOptions())
+	}
 	s.router.Handle("PUT /{$}", s.ipRateLimiter.Limit(s.pastePut()))
 	s.router.Handle("POST /{$}", s.ipRateLimiter.Limit(s.pastePost()))
 	s.router.HandleFunc("GET /{$}", s.serveIndexPage())

@@ -1,6 +1,11 @@
 package store
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrCapacity = errors.New("paste storage is full")
 
 type Store interface {
 	GetEntry(id string) (string, error)

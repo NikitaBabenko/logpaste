@@ -6,7 +6,7 @@
     <title>{{ .Title }}</title>
     <link rel="stylesheet" type="text/css" href="/static/css/style.css" />
   </head>
-  <body>
+  <body{{ if .PublicOrigin }} data-public-origin="{{ html .PublicOrigin }}"{{ end }}>
     <div class="container">
       <h1>{{ .Title }}</h1>
 

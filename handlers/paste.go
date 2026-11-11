@@ -29,12 +29,12 @@ func (s defaultServer) pasteGet() http.HandlerFunc {
 				http.Error(w, "entry not found", http.StatusNotFound)
 				return
 			}
-			log.Printf("failed to retrieve entry %s from datastore: %v", id, err)
+			s.logf("failed to retrieve entry %s from datastore: %v", id, err)
 			http.Error(w, "failed to retrieve entry", http.StatusInternalServerError)
 			return
 		}
 		if _, err := io.WriteString(w, contents); err != nil {
-			log.Printf("failed to write response: %v", err)
+			s.logf("failed to write response: %v", err)
 		}
 	}
 }
@@ -49,28 +49,26 @@ func (s defaultServer) pasteOptions() http.HandlerFunc {
 
 func (s defaultServer) pastePut() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if s.publicOrigin == "" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 
 		bodyRaw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.maxCharLimit))
 		if err != nil {
-			log.Printf("Error reading body: %v", err)
-			http.Error(w, "can't read request body", http.StatusBadRequest)
+			s.logf("Error reading body: %v", err)
+			s.bodyError(w, err, "can't read request body")
 			return
 		}
 
 		body := string(bodyRaw)
-		if !validatePaste(body, w, s.maxCharLimit) {
+		if !s.validatePaste(body, w) {
 			return
 		}
 
 		id := generateEntryId()
-		err = s.store.InsertEntry(id, body)
-		if err != nil {
-			log.Printf("failed to save entry: %v", err)
-			http.Error(w, "can't save entry", http.StatusInternalServerError)
+		if !s.savePaste(w, id, body) {
 			return
 		}
-		log.Printf("saved entry of %d characters", len(body))
 
 		w.Header().Set("Content-Type", "application/json")
 		resp := PastePutResponse{
@@ -84,76 +82,110 @@ func (s defaultServer) pastePut() http.HandlerFunc {
 
 func (s defaultServer) pastePost() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, s.maxCharLimit+1024)
-		if err := r.ParseMultipartForm(s.maxCharLimit); err != nil {
-			log.Printf("failed to parse form: %v", err)
-			http.Error(w, "no valid multipart/form-data found", http.StatusBadRequest)
+		const multipartOverhead = 1024
+		r.Body = http.MaxBytesReader(w, r.Body, s.maxCharLimit+multipartOverhead)
+		maxMemory := s.maxCharLimit
+		if s.publicOrigin != "" {
+			// The whole pilot request fits in memory, including any uploaded file.
+			maxMemory += multipartOverhead
+		}
+		if err := r.ParseMultipartForm(maxMemory); err != nil {
+			s.logf("failed to parse form: %v", err)
+			s.bodyError(w, err, "no valid multipart/form-data found")
 			return
 		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if s.publicOrigin == "" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 
-		body, ok := parsePasteFromMultipartForm(r.MultipartForm, w)
+		body, ok := s.parsePasteFromMultipartForm(r.MultipartForm)
 		if !ok {
-			log.Print("form did not contain any recognizable data")
+			s.logf("form did not contain any recognizable data")
 			http.Error(w, "form data or file is required", http.StatusBadRequest)
 			return
 		}
 
-		if !validatePaste(body, w, s.maxCharLimit) {
+		if !s.validatePaste(body, w) {
 			return
 		}
 
 		id := generateEntryId()
-		if err := s.store.InsertEntry(id, body); err != nil {
-			log.Printf("failed to save entry: %v", err)
-			http.Error(w, "can't save entry", http.StatusInternalServerError)
+		if !s.savePaste(w, id, body) {
 			return
 		}
-		log.Printf("saved entry of %d characters", len(body))
 
 		w.Header().Set("Content-Type", "text/plain")
-		resultURL := fmt.Sprintf("%s/%s\n", baseURLFromRequest(r), id)
+		origin := s.publicOrigin
+		if origin == "" {
+			origin = baseURLFromRequest(r)
+		}
+		resultURL := fmt.Sprintf("%s/%s\n", origin, id)
 		if _, err := w.Write([]byte(resultURL)); err != nil {
-			log.Printf("failed to write response: %v", err)
+			s.logf("failed to write response: %v", err)
 		}
 	}
+}
+
+func (s defaultServer) logf(format string, args ...any) {
+	if s.publicOrigin == "" {
+		log.Printf(format, args...)
+	}
+}
+
+func (s defaultServer) bodyError(w http.ResponseWriter, err error, message string) {
+	if _, oversized := errors.AsType[*http.MaxBytesError](err); s.publicOrigin != "" && oversized {
+		http.Error(w, "Paste is too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	http.Error(w, message, http.StatusBadRequest)
+}
+
+func (s defaultServer) savePaste(w http.ResponseWriter, id, body string) bool {
+	err := s.store.InsertEntry(id, body)
+	if errors.Is(err, store.ErrCapacity) {
+		http.Error(w, "Paste storage is full", http.StatusInsufficientStorage)
+		return false
+	}
+	if err != nil {
+		s.logf("failed to save entry: %v", err)
+		http.Error(w, "can't save entry", http.StatusInternalServerError)
+		return false
+	}
+	s.logf("saved entry of %d characters", len(body))
+	return true
 }
 
 func generateEntryId() string {
 	return random.String(8)
 }
 
-func validatePaste(p string, w http.ResponseWriter, maxCharLimit int64) bool {
+func (s defaultServer) validatePaste(p string, w http.ResponseWriter) bool {
 	if len(strings.TrimSpace(p)) == 0 {
-		log.Print("Paste body was empty")
+		s.logf("Paste body was empty")
 		http.Error(w, "empty body", http.StatusBadRequest)
 		return false
-	} else if int64(len(p)) > maxCharLimit {
-		log.Printf("Paste body was too long: %d characters", len(p))
-		http.Error(w, "body too long", http.StatusBadRequest)
+	} else if int64(len(p)) > s.maxCharLimit {
+		s.logf("Paste body was too long: %d characters", len(p))
+		s.bodyError(w, &http.MaxBytesError{Limit: s.maxCharLimit}, "body too long")
 		return false
 	}
 	return true
 }
 
-func parsePasteFromMultipartForm(f *multipart.Form, w http.ResponseWriter) (string, bool) {
-	if content, ok := parsePasteFromMultipartFormValue(f); ok {
+func (s defaultServer) parsePasteFromMultipartForm(f *multipart.Form) (string, bool) {
+	if content, ok := s.anyValueInForm(f); ok {
 		return content, true
 	}
-	if content, ok := parsePasteFromMultipartFormFile(f, w); ok {
+	if content, ok := s.parsePasteFromMultipartFormFile(f); ok {
 		return content, true
 	}
 	return "", false
 }
 
-func parsePasteFromMultipartFormValue(f *multipart.Form) (string, bool) {
-	return anyValueInForm(f)
-}
-
-func anyValueInForm(f *multipart.Form) (string, bool) {
+func (s defaultServer) anyValueInForm(f *multipart.Form) (string, bool) {
 	for _, values := range f.Value {
 		if len(values) < 1 {
-			log.Printf("form values are empty")
+			s.logf("form values are empty")
 			continue
 		}
 		return values[0], true
@@ -161,30 +193,31 @@ func anyValueInForm(f *multipart.Form) (string, bool) {
 	return "", false
 }
 
-func parsePasteFromMultipartFormFile(f *multipart.Form, w http.ResponseWriter) (string, bool) {
-	file, ok := anyFileInForm(f.File)
+func (s defaultServer) parsePasteFromMultipartFormFile(f *multipart.Form) (string, bool) {
+	file, ok := s.anyFileInForm(f.File)
 	if !ok {
 		return "", false
 	}
 
+	defer file.Close()
 	body, err := io.ReadAll(file)
 	if err != nil {
-		log.Printf("failed to read form file: %v", err)
+		s.logf("failed to read form file: %v", err)
 		return "", false
 	}
 
 	return string(body), true
 }
 
-func anyFileInForm(formFiles map[string][]*multipart.FileHeader) (multipart.File, bool) {
+func (s defaultServer) anyFileInForm(formFiles map[string][]*multipart.FileHeader) (multipart.File, bool) {
 	for _, fileHeaders := range formFiles {
 		if len(fileHeaders) < 1 {
-			log.Printf("form files are empty")
+			s.logf("form files are empty")
 			continue
 		}
 		file, err := fileHeaders[0].Open()
 		if err != nil {
-			log.Printf("failed to open form file: %v", err)
+			s.logf("failed to open form file: %v", err)
 			return nil, false
 		}
 		return file, true
