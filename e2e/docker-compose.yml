@@ -7,6 +7,7 @@ services:
   logpaste:
     build:
       context: ../
+      target: upstream
     entrypoint: /app/e2e/wait-for-sftp.bash
     command: ["test_sftp", "22", "--", "/app/docker-entrypoint"]
     environment:

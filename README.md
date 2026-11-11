@@ -23,7 +23,7 @@ A minimalist web service for uploading and sharing log files.
 ### From source
 
 ```bash
-PORT=3001 go run cmd/logpaste/main.go
+PORT=3001 go run ./cmd/logpaste
 ```
 
 ### From Docker
