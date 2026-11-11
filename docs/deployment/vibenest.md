@@ -1,10 +1,10 @@
 # LogPaste on VibeNest
 
-**NOT_READY.** This guided pilot is for small teams sharing synthetic diagnostic logs. The protected profile is in a local branch of [the LogPaste fork](https://github.com/NikitaBabenko/logpaste). VibeNest launch, HTTPS access and persistence still need runtime verification.
+**NOT_READY.** This guided pilot is for small teams sharing synthetic diagnostic logs. The protected profile is published on [the pilot branch](https://github.com/NikitaBabenko/logpaste/tree/codex/vibenest-logpaste-pilot). The VibeNest build, button, HTTPS access and persistence still need runtime verification.
 
 ## Deployment link draft
 
-The link opens the repository preview. In the single-service flow, Continue can dispatch a first attempt after sign-in, before project settings can be edited. Wait for the protected branch to be published and for a test slot to be assigned before using Continue.
+The draft link opens the repository preview. With a fresh account and no matching project, **Continue** can start a single-service deployment after sign-in without pausing for configuration. The pilot button test requires an already prepared project and sign-in as its owner. Wait for an assigned test slot and complete the setup below before using **Continue**.
 
 ```html
 <a href="https://vibenest.net/deploy?repo=https%3A%2F%2Fgithub.com%2FNikitaBabenko%2Flogpaste&amp;branch=codex%2Fvibenest-logpaste-pilot">
@@ -12,12 +12,23 @@ The link opens the repository preview. In the single-service flow, Continue can 
 </a>
 ```
 
-## Project settings
+## Prepare a solo project
 
-1. Select the root Dockerfile and its final `vibenest` stage. Confirm the protected branch and revision. The Dockerfile also keeps an explicit `upstream` target for the original mode. Route the branded HTTPS host to internal port `3001`. If setting `PORT` explicitly, use `3001`. The image health check uses `GET /healthz`, which returns an empty response.
-2. Set runtime `LP_PILOT_USERNAME`, secret `LP_PILOT_PASSWORD` with a generated password of at least 24 characters, and `LP_PILOT_PUBLIC_ORIGIN` to the exact lowercase HTTPS origin with no path, port or trailing slash. Clear `DB_REPLICA_URL` on reused projects. The pilot does not start Litestream or use forwarded IP headers.
-3. In Storage, attach a dedicated writable persistent volume at `/app/data`. That action can dispatch a redeploy. The service exits before listening when settings or mount checks fail. On a reused project, confirm the saved branch, environment and volume identity first. Start with an empty volume or reuse this pilot's own compatible volume. If the app reports incompatible data, preserve the volume and resolve the mismatch before retrying. An interruption after exclusive file creation and before SQLite commits the database identity can leave an empty or uninitialized `store.db`. The next start refuses that file and preserves it for inspection.
-4. After the native deploy is admitted, open the HTTPS site and use the browser's authentication prompt. Upload a synthetic log and open the returned link. For CLI uploads, pass your username to curl so it prompts for the password.
+1. Create a new solo project in the dashboard and leave the Git repository blank.
+2. Open **Storage** and use **Attach Volume** with `/app/data` while the repository is still blank. The dashboard saves the path and calls the deployment dispatcher. With no repository configured, the request stops before reaching the provider. Check that the path is saved and shows **Unverified**. The volume is verified during the later deploy. Keep an existing pilot volume in place when reusing a project.
+3. In **Environment**, add and save runtime `LP_PILOT_USERNAME`, secret `LP_PILOT_PASSWORD` with a generated password of at least 24 characters, and `LP_PILOT_PUBLIC_ORIGIN` set to the exact lowercase HTTPS origin with no path, port or trailing slash. Leave `DB_REPLICA_URL` unset. The pilot skips Litestream and ignores forwarded IP headers.
+4. In **Deployment**, enter `https://github.com/NikitaBabenko/logpaste`. Under **Advanced Settings**, set the branch to `codex/vibenest-logpaste-pilot`, base directory to `/`, build pack to **Dockerfile**, and internal port to `3001`. Choose **Save Configuration**. The root Dockerfile defaults to the protected `vibenest` stage and also includes an explicit `upstream` stage for the original mode. If setting runtime `PORT` explicitly, use `3001`.
+5. Attach the designated unattached Free server through **My Servers**. This saves the hardware attachment without starting a deployment. The project card's **Attach hardware** action can start a deployment for an idle project with a repository, so use **My Servers** when preparing the button test.
+
+## Choose one launch action
+
+After the pilot slot is assigned, confirm the intended owner, saved repository and branch, environment, storage path and Free attachment. For a manual launch, select **Deploy Now** once. For the button test, open the draft link and use **Continue** as the same owner. The solo flow selects the newest unarchived project matching that owner and repository and uses its saved branch. Check that this is the prepared project before using **Continue**. The button flow itself requests the deployment.
+
+If deployment cannot verify the required volume, resolve that failure before retrying. The app also checks its settings and mount before listening. Use a dedicated empty volume or this pilot's own compatible volume. An interrupted initialization can leave an empty or uninitialized `store.db`. If the app refuses that file or other incompatible data, preserve the volume for inspection.
+
+## Check upload and persistence
+
+After the native deploy is admitted, confirm the running revision and volume identity. The image health check uses `GET /healthz`, which returns an empty response. Open the HTTPS site and use the browser's authentication prompt. Upload a synthetic log and open the returned link. For CLI uploads, pass your username to curl so it prompts for the password.
 
 ```sh
 curl --user "$LP_PILOT_USERNAME" --form '_=<fixture.log' "$LP_PILOT_PUBLIC_ORIGIN/"
